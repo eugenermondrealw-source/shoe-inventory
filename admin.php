@@ -24,14 +24,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect('admin.php');
     }
 
-    if ($action === 'update_stock') {                     // admin + staff
+    if ($action === 'update_stock') {          // stock: admin + staff | shoe details: admin only
         $qtys = $_POST['qty'] ?? [];
         if (!is_array($qtys)) {
             flash('danger', 'Invalid update request.');
             redirect('admin.php');
         }
+
+        // Shoe details are read from the form for admins only. For staff, any
+        // name/brand/category/price/image_url fields in the request are ignored.
+        $details = null;
+        if ($isAdmin && isset($_POST['name'])) {
+            $d = [];
+            foreach (['name', 'brand', 'category', 'price', 'image_url'] as $field) {
+                $d[$field] = trim((string) ($_POST[$field] ?? ''));
+            }
+            $problems = [];
+            if ($d['name'] === ''     || mb_strlen($d['name']) > 150)     $problems[] = 'Name is required (max 150 characters).';
+            if ($d['brand'] === ''    || mb_strlen($d['brand']) > 100)    $problems[] = 'Brand is required (max 100 characters).';
+            if ($d['category'] === '' || mb_strlen($d['category']) > 100) $problems[] = 'Category is required (max 100 characters).';
+            $price = filter_var($d['price'], FILTER_VALIDATE_FLOAT);
+            if ($price === false || $price < 0 || $price > 9999999) $problems[] = 'Price must be a number of 0 or more.';
+            if ($d['image_url'] !== '' && (!filter_var($d['image_url'], FILTER_VALIDATE_URL) || !preg_match('#^https?://#i', $d['image_url']))) {
+                $problems[] = 'Image URL must be a valid http(s) link.';
+            }
+            if (!$problems) {
+                $dup = $pdo->prepare('SELECT 1 FROM shoes WHERE LOWER(name) = LOWER(:n) AND LOWER(brand) = LOWER(:b) AND id <> :id');
+                $dup->execute([':n' => $d['name'], ':b' => $d['brand'], ':id' => $shoeId]);
+                if ($dup->fetchColumn()) {
+                    $problems[] = 'Another shoe named "' . $d['name'] . '" by ' . $d['brand'] . ' already exists.';
+                }
+            }
+            if ($problems) {
+                flash('danger', 'Not saved. ' . implode(' ', $problems));
+                redirect('admin.php');
+            }
+            $details = [
+                'name' => $d['name'], 'brand' => $d['brand'], 'category' => $d['category'],
+                'price' => $price, 'image_url' => $d['image_url'] !== '' ? $d['image_url'] : null,
+            ];
+        }
+
         try {
             $pdo->beginTransaction();
+            if ($details) {
+                $pdo->prepare(
+                    'UPDATE shoes SET name = :n, brand = :b, category = :c, price = :p, image_url = :i WHERE id = :id'
+                )->execute([
+                    ':n' => $details['name'], ':b' => $details['brand'], ':c' => $details['category'],
+                    ':p' => $details['price'], ':i' => $details['image_url'], ':id' => $shoeId,
+                ]);
+            }
             $upd = $pdo->prepare('UPDATE shoe_sizes SET quantity = :qty WHERE id = :id AND shoe_id = :shoe_id');
             foreach ($qtys as $sizeId => $qty) {
                 $sizeId = filter_var($sizeId, FILTER_VALIDATE_INT);
@@ -42,14 +85,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $upd->execute([':qty' => $qty, ':id' => $sizeId, ':shoe_id' => $shoeId]);
             }
             $pdo->commit();
-            flash('success', 'Stock updated for "' . $shoeName . '".');
+            flash('success', 'Saved changes to "' . ($details['name'] ?? $shoeName) . '".');
         } catch (InvalidArgumentException $ex) {
             $pdo->rollBack();
             flash('danger', $ex->getMessage());
         } catch (PDOException $ex) {
             $pdo->rollBack();
             error_log($ex->getMessage());
-            flash('danger', 'Database error while updating stock.');
+            flash('danger', 'Database error: nothing was saved.');
         }
 
     } elseif ($action === 'delete_shoe') {                // admin only
@@ -115,8 +158,8 @@ $token = csrf_token();
 
 $css = <<<'CSS'
 <style>
-    .shoe-thumb { width: 56px; height: 56px; object-fit: cover; border-radius: .5rem; background: #e9ecef; flex-shrink: 0; }
-    .size-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: .4rem; min-width: 300px; }
+    .shoe-thumb { width: 64px; height: 64px; object-fit: cover; border-radius: .5rem; background: #e9ecef; flex-shrink: 0; }
+    .size-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: .5rem; min-width: 320px; }
     .size-cell { border: 1px solid #dee2e6; border-radius: .5rem; text-align: center; padding: .25rem .2rem; background: #fff; }
     .size-cell .sz { font-size: .72rem; color: #6c757d; display: block; }
     .size-cell .qt { font-weight: 700; font-size: 1.05rem; line-height: 1.2; display: block; }
@@ -128,7 +171,7 @@ $css = <<<'CSS'
     .stat-card { text-align: left; width: 100%; }
     button.stat-card:hover { box-shadow: 0 .25rem .75rem rgba(0,0,0,.12) !important; }
     .stat-card .num { font-size: 1.75rem; font-weight: 700; line-height: 1.1; }
-    .qty-input.is-changed { border-color: #ffc107; background: #fffbea; box-shadow: 0 0 0 .15rem rgba(255,193,7,.25); }
+    .qty-input.is-changed, .detail-input.is-changed { border-color: #ffc107; background: #fffbea; box-shadow: 0 0 0 .15rem rgba(255,193,7,.25); }
     tbody.shoe-group > tr:first-child > td { border-top: 1px solid #dee2e6; }
 </style>
 CSS;
@@ -137,6 +180,10 @@ render_header('Inventory', 'inventory', true, $css);
 ?>
 <main id="main" class="container pb-5">
     <?php render_flash(); ?>
+
+    <?php if ($isAdmin): ?>
+        <datalist id="cat-list"><?php foreach ($categories as $c): ?><option value="<?= e($c) ?>"><?php endforeach; ?></datalist>
+    <?php endif; ?>
 
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
         <h1 class="h4 mb-0">Current Stock</h1>
@@ -225,7 +272,7 @@ render_header('Inventory', 'inventory', true, $css);
 
     <div class="card shadow-sm">
         <div class="table-responsive">
-            <table class="table align-middle mb-0" id="stock-table">
+            <table class="table table-grid align-middle mb-0" id="stock-table">
                 <thead class="table-light">
                     <tr>
                         <th scope="col">Shoe</th>
@@ -282,7 +329,7 @@ render_header('Inventory', 'inventory', true, $css);
                                 <div class="d-flex gap-2 mt-2">
                                     <button class="btn btn-outline-secondary btn-sm" type="button"
                                             data-bs-toggle="collapse" data-bs-target="#edit-<?= $shoeId ?>"
-                                            aria-expanded="false" aria-controls="edit-<?= $shoeId ?>">Edit stock</button>
+                                            aria-expanded="false" aria-controls="edit-<?= $shoeId ?>"><?= $isAdmin ? 'Edit stock &amp; details' : 'Edit stock' ?></button>
                                     <?php if ($isAdmin): ?>
                                     <button class="btn btn-outline-danger btn-sm btn-delete" type="button"
                                             data-id="<?= $shoeId ?>" data-name="<?= e($shoe['name']) ?>">Delete</button>
@@ -291,22 +338,62 @@ render_header('Inventory', 'inventory', true, $css);
                             <?php else: ?>
                                 <span class="text-muted">No sizes recorded</span>
                                 <?php if ($isAdmin): ?>
-                                <div class="mt-2"><button class="btn btn-outline-danger btn-sm btn-delete" type="button"
-                                        data-id="<?= $shoeId ?>" data-name="<?= e($shoe['name']) ?>">Delete</button></div>
+                                <div class="d-flex gap-2 mt-2">
+                                    <button class="btn btn-outline-secondary btn-sm" type="button"
+                                            data-bs-toggle="collapse" data-bs-target="#edit-<?= $shoeId ?>"
+                                            aria-expanded="false" aria-controls="edit-<?= $shoeId ?>">Edit details</button>
+                                    <button class="btn btn-outline-danger btn-sm btn-delete" type="button"
+                                            data-id="<?= $shoeId ?>" data-name="<?= e($shoe['name']) ?>">Delete</button>
+                                </div>
                                 <?php endif; ?>
                             <?php endif; ?>
                         </td>
-                        <td class="text-center fw-bold"><?= $shoe['total'] ?></td>
+                        <td class="text-center">
+                            <span class="badge rounded-pill fs-6 <?= $shoe['total'] === 0 ? 'text-bg-danger' : 'text-bg-light border text-dark' ?>"
+                                  title="<?= $shoe['total'] ?> pair<?= $shoe['total'] === 1 ? '' : 's' ?> in total"><?= $shoe['total'] ?></span>
+                        </td>
                     </tr>
 
-                    <?php if ($shoe['sizes']): ?>
+                    <?php if ($shoe['sizes'] || $isAdmin): ?>
                     <tr class="collapse" id="edit-<?= $shoeId ?>">
                         <td colspan="5" class="bg-light">
                             <form method="post" action="admin.php" class="p-2 stock-form">
                                 <input type="hidden" name="action" value="update_stock">
                                 <input type="hidden" name="csrf" value="<?= e($token) ?>">
                                 <input type="hidden" name="shoe_id" value="<?= $shoeId ?>">
-                                <p class="small fw-semibold mb-2">Update quantities for <?= e($shoe['name']) ?></p>
+                                <?php if ($isAdmin): ?>
+                                <p class="small fw-semibold mb-2">Shoe details</p>
+                                <div class="row g-2 mb-3">
+                                    <div class="col-12 col-md-5">
+                                        <label class="form-label small mb-0" for="n<?= $shoeId ?>">Name</label>
+                                        <input type="text" class="form-control form-control-sm detail-input" id="n<?= $shoeId ?>" name="name"
+                                               maxlength="150" required value="<?= e($shoe['name']) ?>" data-original="<?= e($shoe['name']) ?>">
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <label class="form-label small mb-0" for="b<?= $shoeId ?>">Brand</label>
+                                        <input type="text" class="form-control form-control-sm detail-input" id="b<?= $shoeId ?>" name="brand"
+                                               maxlength="100" required value="<?= e($shoe['brand']) ?>" data-original="<?= e($shoe['brand']) ?>">
+                                    </div>
+                                    <div class="col-6 col-md-4">
+                                        <label class="form-label small mb-0" for="c<?= $shoeId ?>">Category</label>
+                                        <input type="text" class="form-control form-control-sm detail-input" id="c<?= $shoeId ?>" name="category"
+                                               maxlength="100" list="cat-list" required value="<?= e($shoe['category']) ?>" data-original="<?= e($shoe['category']) ?>">
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <label class="form-label small mb-0" for="p<?= $shoeId ?>">Price (&#8369;)</label>
+                                        <?php $priceStr = number_format($shoe['price'], 2, '.', ''); ?>
+                                        <input type="number" class="form-control form-control-sm detail-input" id="p<?= $shoeId ?>" name="price"
+                                               min="0" step="0.01" inputmode="decimal" required value="<?= $priceStr ?>" data-original="<?= $priceStr ?>">
+                                    </div>
+                                    <div class="col-12 col-md-9">
+                                        <label class="form-label small mb-0" for="i<?= $shoeId ?>">Image URL <span class="text-muted">(optional)</span></label>
+                                        <input type="url" class="form-control form-control-sm detail-input" id="i<?= $shoeId ?>" name="image_url"
+                                               placeholder="https://..." value="<?= e((string) $shoe['image_url']) ?>" data-original="<?= e((string) $shoe['image_url']) ?>">
+                                    </div>
+                                </div>
+                                <?php endif; ?>
+                                <?php if ($shoe['sizes']): ?>
+                                <p class="small fw-semibold mb-2">Stock quantities</p>
                                 <div class="row g-2">
                                     <?php foreach ($shoe['sizes'] as $s): $lbl = 'US ' . number_format($s['size'], 1); ?>
                                         <div class="col-6 col-sm-4 col-md-3 col-lg-2">
@@ -321,6 +408,7 @@ render_header('Inventory', 'inventory', true, $css);
                                         </div>
                                     <?php endforeach; ?>
                                 </div>
+                                <?php endif; ?>
                                 <div class="d-flex align-items-center gap-2 mt-3">
                                     <button type="submit" class="btn btn-primary btn-sm" data-save disabled>
                                         Save changes <span class="spinner-border spinner-border-sm btn-spinner ms-1" aria-hidden="true"></span>
@@ -421,19 +509,21 @@ render_header('Inventory', 'inventory', true, $css);
 
     /* ---------- Stock editor: steppers, change tracking, loading state ---------- */
     document.querySelectorAll('form.stock-form').forEach(function (form) {
-        const inputs = Array.from(form.querySelectorAll('.qty-input'));
+        const inputs = Array.from(form.querySelectorAll('.qty-input, .detail-input'));
         const save = form.querySelector('[data-save]');
         const label = form.querySelector('[data-changed-label]');
 
         function refresh() {
             let changed = 0;
             inputs.forEach(function (i) {
-                const isChanged = i.value !== '' && i.value !== i.dataset.original;
+                const isChanged = i.classList.contains('detail-input')
+                    ? i.value.trim() !== i.dataset.original
+                    : (i.value !== '' && i.value !== i.dataset.original);
                 i.classList.toggle('is-changed', isChanged);
                 if (isChanged) changed++;
             });
             save.disabled = changed === 0;
-            label.textContent = changed === 0 ? 'No changes yet' : changed + ' size' + (changed === 1 ? '' : 's') + ' changed';
+            label.textContent = changed === 0 ? 'No changes yet' : changed + ' change' + (changed === 1 ? '' : 's');
         }
         form.addEventListener('input', function (ev) {
             if (ev.target.classList.contains('qty-input') && +ev.target.value < 0) ev.target.value = 0;

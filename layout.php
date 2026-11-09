@@ -23,6 +23,20 @@ function render_header(string $title, string $active = '', bool $nav = true, str
         :focus-visible { outline: 3px solid #0d6efd; outline-offset: 2px; }
         .card { border: 0; }
         .btn-spinner { display: none; }
+
+        /* Data tables: vertical column dividers, roomier cells, clearer header */
+        .table-grid > :not(caption) > * > * { padding: 1rem 1.25rem; }
+        .table-grid th, .table-grid td { border-right: 1px solid #dee2e6; }
+        .table-grid th:last-child, .table-grid td:last-child { border-right: 0; }
+        .table-grid thead th {
+            background: #f1f3f5; color: #495057; font-size: .78rem; font-weight: 700;
+            letter-spacing: .05em; text-transform: uppercase; border-bottom: 2px solid #ced4da;
+        }
+        .table-grid tbody tr:not(.collapse):hover > * { --bs-table-bg-state: #f4f8fd; }
+        .table-grid .btn-sm { padding: .35rem .75rem; }
+        @media (max-width: 767.98px) {
+            .table-grid > :not(caption) > * > * { padding: .75rem; }
+        }
         .is-loading .btn-spinner { display: inline-block; }
     </style>
     <?= $extraHead ?>

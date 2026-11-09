@@ -155,7 +155,7 @@ render_header('Users', 'users');
 
     <div class="card shadow-sm">
         <div class="table-responsive">
-            <table class="table align-middle mb-0">
+            <table class="table table-grid align-middle mb-0">
                 <thead class="table-light">
                     <tr><th scope="col">Name</th><th scope="col">Username</th><th scope="col">Role</th>
                         <th scope="col">Status</th><th scope="col">Last sign-in</th><th scope="col" class="text-end">Actions</th></tr>
