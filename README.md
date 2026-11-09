@@ -4,6 +4,8 @@ A small web app for a shoe retail business. The merchant tracks every shoe model
 
 Built with **PHP 8.1+ (PDO)**, **MySQL / MariaDB** and **Bootstrap 5**. It runs entirely on localhost.
 
+**Repository:** https://github.com/eugenermondrealw-source/shoe-inventory
+
 ---
 
 ## Features
@@ -68,12 +70,36 @@ The easiest route on Windows or macOS is **[XAMPP](https://www.apachefriends.org
 1. Install XAMPP (choose a version that ships PHP 8.1+).
 2. Open the **XAMPP Control Panel** and click **Start** next to **Apache** and **MySQL**. Both should turn green.
 
-### 2. Copy the project
-Copy the whole `shoe-inventory` folder into XAMPP's web root:
+### 2. Get the project from GitHub
+The project must end up inside XAMPP's web root (`htdocs`), in a folder named `shoe-inventory`:
 
 - Windows: `C:\xampp\htdocs\shoe-inventory\`
 - macOS: `/Applications/XAMPP/htdocs/shoe-inventory/`
 - Linux: `/opt/lampp/htdocs/shoe-inventory/`
+
+**Option A: clone with Git (recommended).** Install [Git](https://git-scm.com/downloads) if you don't have it (check with `git --version`), then open a terminal in `htdocs` and clone:
+
+```bash
+# Windows (Command Prompt or PowerShell)
+cd C:\xampp\htdocs
+
+# macOS
+# cd /Applications/XAMPP/htdocs
+
+# Linux
+# cd /opt/lampp/htdocs
+
+git clone https://github.com/eugenermondrealw-source/shoe-inventory.git
+```
+
+This creates `htdocs/shoe-inventory/` with all the files. (On macOS and Linux you may need `sudo` because `htdocs` is a protected folder.)
+
+**Option B: download a ZIP (no Git needed).**
+1. Open https://github.com/eugenermondrealw-source/shoe-inventory
+2. Click the green **Code** button, then **Download ZIP**.
+3. Extract it into `htdocs`. GitHub names the folder `shoe-inventory-main`, so **rename it to `shoe-inventory`**. Otherwise the URLs below won't match.
+
+When you're done, `htdocs/shoe-inventory/` should contain `login.php`, `admin.php`, `db.php` and the other files listed under *Project structure*.
 
 ### 3. Create the database
 1. Open **http://localhost/phpmyadmin**.
@@ -125,6 +151,27 @@ Sign in as Admin, open **Users**, and add accounts with the **Staff** role for a
 
 ---
 
+## Keeping your copy up to date
+
+If you cloned with Git, pull the latest changes at any time:
+
+```bash
+cd C:\xampp\htdocs\shoe-inventory
+git pull
+```
+
+If you edited `db.php` for your own database password and Git complains about local changes, run `git stash`, then `git pull`, then `git stash pop`, which re-applies your edits.
+
+To push your own changes back to GitHub:
+
+```bash
+git add .
+git commit -m "Describe what you changed"
+git push
+```
+
+---
+
 ## Alternative: PHP's built-in server
 
 If you already have PHP 8.1+ and MySQL installed and don't want Apache:
@@ -172,6 +219,7 @@ Then open **http://localhost:8000/login.php**. MySQL must be running, and `php -
 - Login errors don't reveal whether a username exists. Repeated failures temporarily lock the account.
 - Disabling a user or changing their role takes effect on their next click, even if they're signed in.
 - Admins cannot demote or disable their own account.
+- **Never commit real credentials.** `db.php` in the repository contains only the XAMPP defaults (`root`, empty password). If you set a real database password locally, don't push it to GitHub, especially if the repository is public. Likewise, don't commit database exports that contain real accounts or business data.
 - This is built for **localhost**. Before putting it on a public server: use HTTPS, set a strong MySQL password (not the empty `root` one), create a dedicated database user instead of `root`, and turn off PHP error display.
 
 ---
